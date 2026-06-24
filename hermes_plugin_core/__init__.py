@@ -13,6 +13,7 @@ from hermes_plugin_core.config import (
     get_log_level,
     set_log_level,
 )
+from hermes_plugin_core.setup_cli import SetupCLI, PluginConfig
 
 __all__ = [
     "__version__",
@@ -33,4 +34,7 @@ __all__ = [
     "plugin_is_enabled",
     "get_log_level",
     "set_log_level",
+    # setup_cli
+    "SetupCLI",
+    "PluginConfig",
 ]
