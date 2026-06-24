@@ -14,6 +14,8 @@ from hermes_plugin_core.config import (
     set_log_level,
 )
 from hermes_plugin_core.setup_cli import SetupCLI, PluginConfig
+from hermes_plugin_core.testing import TestSuite, expect_ok, run_plugin_tests, load_plugin_tests
+from hermes_plugin_core.scaffold import scaffold
 
 __all__ = [
     "__version__",
@@ -37,4 +39,11 @@ __all__ = [
     # setup_cli
     "SetupCLI",
     "PluginConfig",
+    # testing
+    "TestSuite",
+    "expect_ok",
+    "run_plugin_tests",
+    "load_plugin_tests",
+    # scaffold
+    "scaffold",
 ]

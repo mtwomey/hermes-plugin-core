@@ -40,6 +40,7 @@ from hermes_plugin_core.config import (
     set_log_level,
 )
 from hermes_plugin_core.keychain import cred_delete, cred_get, cred_set
+from hermes_plugin_core.testing import run_plugin_tests
 
 # ---------------------------------------------------------------------------
 # Constants
@@ -329,6 +330,14 @@ class SetupCLI:
                 print(f"  {icon} {k:<20} {state}")
             print()
 
+    def cmd_test(self, args) -> None:
+        """Run plugin smoke tests via tests/plugin_tests.py."""
+        cfg = self.config
+        plugin_name = f"hermes-plugin-{cfg.plugin_key}"
+        passed = run_plugin_tests(cfg.repo_dir, plugin_name)
+        if not passed:
+            sys.exit(1)
+
     def cmd_log(self, args) -> None:
         """Enable, disable, or show the current log level stored in config.yaml."""
         cfg = self.config
@@ -401,7 +410,7 @@ class SetupCLI:
             "credentials": self.cmd_credentials,
             "log":         self.cmd_log,
             "audit":       lambda _: print("run: python setup.py audit"),
-            "test":        lambda _: print("run: python setup.py test"),
+            "test":        self.cmd_test,
         }
 
         fn = dispatch.get(args.command)
