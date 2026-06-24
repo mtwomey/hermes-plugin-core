@@ -1,0 +1,13 @@
+"""Tool schemas for hermes-plugin-{{PLUGIN_NAME}}."""
+
+TOOLS = [
+    {
+        "name": "{{PLUGIN_KEY}}_ping",
+        "description": "Test connectivity and authentication for {{PLUGIN_NAME}}.",
+        "input_schema": {
+            "type": "object",
+            "properties": {},
+            "required": [],
+        },
+    },
+]

@@ -1,0 +1,6 @@
+name: hermes-plugin-{{PLUGIN_NAME}}
+version: 0.1.0
+description: Hermes plugin for {{PLUGIN_NAME}}
+provides_tools:
+  - {{PLUGIN_KEY}}_ping
+requires_env: []

@@ -1,0 +1,23 @@
+"""Smoke tests for hermes-plugin-{{PLUGIN_NAME}}.
+
+Run with: python setup.py test
+
+Tests call tools directly — no Hermes restart needed.
+Credentials are read from Keychain (same path as production).
+"""
+import sys
+from pathlib import Path
+
+# Add plugin root to sys.path so tools.py can be imported directly
+sys.path.insert(0, str(Path(__file__).parent.parent))
+
+from hermes_plugin_core.testing import TestSuite, expect_ok  # noqa: E402
+
+
+def register_tests(suite: TestSuite):
+    suite.add("ping", test_ping)
+
+
+def test_ping():
+    from tools import {{PLUGIN_KEY}}_ping  # noqa: E402
+    expect_ok({{PLUGIN_KEY}}_ping({}))

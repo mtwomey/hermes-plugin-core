@@ -369,6 +369,15 @@ class SetupCLI:
             print(f"Unknown log action: {action!r}. Use: debug | quiet | status")
             sys.exit(1)
 
+    def cmd_audit(self, args) -> None:
+        """Run the plugin compliance audit."""
+        from hermes_plugin_core.audit import run_audit, print_audit_report
+        cfg = self.config
+        results = run_audit(cfg.repo_dir, cfg.plugin_key)
+        passed = print_audit_report(cfg.plugin_key, results)
+        if not passed:
+            sys.exit(1)
+
     # ------------------------------------------------------------------
     # Argument parser + dispatch
     # ------------------------------------------------------------------
@@ -409,7 +418,7 @@ class SetupCLI:
             "status":      self.cmd_status,
             "credentials": self.cmd_credentials,
             "log":         self.cmd_log,
-            "audit":       lambda _: print("run: python setup.py audit"),
+            "audit":       self.cmd_audit,
             "test":        self.cmd_test,
         }
 

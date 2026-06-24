@@ -1,0 +1,12 @@
+"""Hermes plugin: {{PLUGIN_NAME}}"""
+from hermes_plugin_core import setup_logging
+from hermes_plugin_core.config import get_log_level
+from hermes_plugin_core.keychain import cred_get
+
+
+def register(ctx):
+    log_level = get_log_level("{{PLUGIN_KEY}}")
+    setup_logging("{{PLUGIN_KEY}}", log_level)
+    ctx.register_tools([
+        "{{PLUGIN_KEY}}_ping",
+    ])

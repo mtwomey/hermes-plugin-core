@@ -1,0 +1,36 @@
+---
+name: {{PLUGIN_KEY}}
+description: "{{PLUGIN_NAME}} tools: ping and more."
+version: 0.1.0
+author: Your Name
+license: MIT
+platforms: [macos]
+metadata:
+  hermes:
+    tags: [{{PLUGIN_KEY}}]
+---
+
+# {{PLUGIN_NAME}} Plugin
+
+Provides tools for interacting with {{PLUGIN_NAME}}.
+
+## Setup
+
+```bash
+./setup.sh install
+```
+
+## Available Tools
+
+### `{{PLUGIN_KEY}}_ping`
+Test connectivity and authentication.
+
+## Credentials
+
+| Key | Description |
+|-----|-------------|
+| `api_key` | API key for {{PLUGIN_NAME}} |
+
+## Notes
+
+TODO: Add usage notes.
