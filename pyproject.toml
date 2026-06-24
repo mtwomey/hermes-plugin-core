@@ -1,0 +1,20 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "hermes-plugin-core"
+version = "0.1.0"
+description = "Shared infrastructure for Hermes native plugins"
+requires-python = ">=3.10"
+dependencies = [
+    "ruamel.yaml>=0.18",
+    "keyring>=24",
+]
+
+[project.scripts]
+hermes-plugin-scaffold = "hermes_plugin_core.scaffold:main"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["hermes_plugin_core*"]
