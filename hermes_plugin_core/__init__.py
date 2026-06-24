@@ -1,14 +1,25 @@
 """hermes-plugin-core — shared infrastructure for Hermes native plugins."""
 __version__ = "0.1.0"
 
-from hermes_plugin_core.logging import setup_logging
-from hermes_plugin_core.keychain import cred_get, cred_set, cred_delete, cred_status, cred_cache_clear
+from hermes_plugin_core.config import (
+    hermes_home,
+    load_yaml,
+    save_yaml,
+    plugin_enable,
+    plugin_disable,
+    plugin_is_enabled,
+    get_log_level,
+    set_log_level,
+)
 
 __all__ = [
-    "setup_logging",
-    "cred_get",
-    "cred_set",
-    "cred_delete",
-    "cred_status",
-    "cred_cache_clear",
+    "__version__",
+    "hermes_home",
+    "load_yaml",
+    "save_yaml",
+    "plugin_enable",
+    "plugin_disable",
+    "plugin_is_enabled",
+    "get_log_level",
+    "set_log_level",
 ]
