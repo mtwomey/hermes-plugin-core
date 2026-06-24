@@ -414,6 +414,8 @@ class SetupCLI:
         sub.add_parser("audit", help="Run plugin audit")
         sub.add_parser("test",  help="Run plugin tests")
 
+        self._register_extra_subparsers(sub)
+
         args = parser.parse_args()
 
         dispatch = {
@@ -427,7 +429,40 @@ class SetupCLI:
         }
 
         fn = dispatch.get(args.command)
-        if fn is None:
+        if fn is not None:
+            fn(args)
+        elif self._dispatch_extra(args.command, args, parser):
+            pass
+        else:
             parser.print_help()
             sys.exit(0)
-        fn(args)
+
+    def _register_extra_subparsers(self, sub) -> None:
+        """Hook for subclasses to add extra subparsers so they appear in --help.
+
+        Called after all built-in subparsers are registered, before parse_args().
+
+        Example::
+
+            def _register_extra_subparsers(self, sub):
+                wp = sub.add_parser("workspace", help="Manage workspaces")
+                wp.add_argument("ws_action", nargs="?",
+                                choices=["list", "add", "remove", "update", "set-default"])
+                wp.add_argument("name", nargs="?", help="Workspace name")
+        """
+
+    def _dispatch_extra(self, command: str, args, parser) -> bool:
+        """Hook for subclasses to handle commands not in the built-in dispatch table.
+
+        Called when the parsed command is not a built-in.
+        Return True if handled, False to fall through to print_help() + sys.exit(0).
+
+        Example::
+
+            def _dispatch_extra(self, command, args, parser):
+                if command == "workspace":
+                    self.cmd_workspace(args)
+                    return True
+                return False
+        """
+        return False
