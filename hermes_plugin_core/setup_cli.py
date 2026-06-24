@@ -373,7 +373,11 @@ class SetupCLI:
         """Run the plugin compliance audit."""
         from hermes_plugin_core.audit import run_audit, print_audit_report
         cfg = self.config
-        results = run_audit(cfg.repo_dir, cfg.plugin_key)
+        results = run_audit(
+            cfg.repo_dir,
+            cfg.plugin_key,
+            cfg.skill_stub_category if cfg.has_skill_stub else None,
+        )
         passed = print_audit_report(cfg.plugin_key, results)
         if not passed:
             sys.exit(1)

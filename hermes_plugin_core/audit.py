@@ -473,6 +473,58 @@ def _check_skill_md_content(repo_dir: Path) -> list[AuditResult]:
     return results
 
 
+def _check_skill_stub(repo_dir: Path, plugin_key: str, skill_stub_category: str) -> list[AuditResult]:
+    """Check 12: skill-stub/SKILL.md exists and is installed as a correct symlink."""
+    results: list[AuditResult] = []
+    stub_src = repo_dir / "skill-stub" / "SKILL.md"
+
+    # 12a — stub file exists in repo
+    if not stub_src.exists():
+        results.append(AuditResult(
+            AuditStatus.FAIL,
+            "skill stub",
+            "skill-stub/SKILL.md missing from repo — add it (redirect stub for unqualified skill_view)",
+        ))
+        return results
+    results.append(AuditResult(
+        AuditStatus.PASS,
+        "skill stub (repo)",
+        "skill-stub/SKILL.md present in repo",
+    ))
+
+    # 12b — install path is a symlink pointing to the right target
+    hermes_skills_dir = Path(os.environ.get("HERMES_HOME", Path.home() / ".hermes")) / "skills"
+    stub_link = hermes_skills_dir / skill_stub_category / plugin_key
+    stub_dir  = repo_dir / "skill-stub"
+
+    if not stub_link.exists() and not stub_link.is_symlink():
+        results.append(AuditResult(
+            AuditStatus.WARN,
+            "skill stub (install)",
+            f"symlink not found at {stub_link} — run: python setup.py install",
+        ))
+    elif not stub_link.is_symlink():
+        results.append(AuditResult(
+            AuditStatus.WARN,
+            "skill stub (install)",
+            f"{stub_link} exists but is not a symlink — remove it and re-run: python setup.py install",
+        ))
+    elif stub_link.resolve() != stub_dir.resolve():
+        results.append(AuditResult(
+            AuditStatus.WARN,
+            "skill stub (install)",
+            f"symlink points to wrong target: {stub_link.resolve()} (expected {stub_dir.resolve()})",
+        ))
+    else:
+        results.append(AuditResult(
+            AuditStatus.PASS,
+            "skill stub (install)",
+            f"symlink correct: {stub_link} → {stub_dir}",
+        ))
+
+    return results
+
+
 def _check_tools_logger(repo_dir: Path) -> AuditResult:
     """Check 11: tools.py uses getLogger, not setup_logging."""
     tools_path = repo_dir / "tools.py"
@@ -531,7 +583,7 @@ def _check_tools_logger(repo_dir: Path) -> AuditResult:
 # Main entry point
 # ---------------------------------------------------------------------------
 
-def run_audit(repo_dir: Path, plugin_key: Optional[str] = None) -> list[AuditResult]:
+def run_audit(repo_dir: Path, plugin_key: Optional[str] = None, skill_stub_category: Optional[str] = None) -> list[AuditResult]:
     """Run all checks against a plugin repo. Returns list of AuditResult."""
     repo_dir = Path(repo_dir).resolve()
     results: list[AuditResult] = []
@@ -558,6 +610,9 @@ def run_audit(repo_dir: Path, plugin_key: Optional[str] = None) -> list[AuditRes
     results.extend(_check_skill_md_content(repo_dir))
     # Check 11
     results.append(_check_tools_logger(repo_dir))
+    # Check 12 — only when plugin_key and skill_stub_category are provided
+    if plugin_key and skill_stub_category:
+        results.extend(_check_skill_stub(repo_dir, plugin_key, skill_stub_category))
 
     return results
 

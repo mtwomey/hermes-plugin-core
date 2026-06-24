@@ -1,0 +1,24 @@
+---
+name: {{PLUGIN_KEY}}
+description: >
+  {{PLUGIN_NAME}} via the {{PLUGIN_KEY}} native plugin.
+  This is a redirect stub — load the full skill with skill_view(name="{{PLUGIN_KEY}}:{{PLUGIN_KEY}}").
+category: {{SKILL_CATEGORY}}
+triggers:
+  - "{{PLUGIN_KEY}}"
+  - "{{PLUGIN_NAME}}"
+  - "{{PLUGIN_KEY}}_"
+---
+
+# {{PLUGIN_KEY}} — redirect stub
+
+The full skill lives inside the `{{PLUGIN_KEY}}` plugin and is registered at runtime.
+
+**Load it with:**
+
+```
+skill_view(name="{{PLUGIN_KEY}}:{{PLUGIN_KEY}}")
+```
+
+This stub exists solely so `skills_list(category="{{SKILL_CATEGORY}}")` surfaces the skill
+and agents can discover the correct namespaced name.

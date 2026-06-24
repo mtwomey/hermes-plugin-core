@@ -5,9 +5,9 @@ version: 0.1.0
 author: Your Name
 license: MIT
 platforms: [macos]
-metadata:
-  hermes:
-    tags: [{{PLUGIN_KEY}}]
+triggers:
+  - "{{PLUGIN_KEY}}"
+  - "{{PLUGIN_NAME}}"
 ---
 
 # {{PLUGIN_NAME}} Plugin
@@ -30,6 +30,18 @@ Test connectivity and authentication.
 | Key | Description |
 |-----|-------------|
 | `api_key` | API key for {{PLUGIN_NAME}} |
+
+## Common Patterns
+
+```python
+# Test connectivity
+{{PLUGIN_KEY}}_ping()
+```
+
+## Pitfalls
+
+- **Credentials missing** — run `python setup.py credentials configure` to store them.
+- **Plugin not appearing** — verify `{{PLUGIN_KEY}}` in `plugins.enabled` in config.yaml; check symlink; restart Hermes.
 
 ## Notes
 

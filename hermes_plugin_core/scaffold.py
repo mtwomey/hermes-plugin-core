@@ -21,33 +21,36 @@ TEMPLATES_DIR = Path(__file__).parent / "templates"
 
 # Maps: (template_filename, output_filename, make_executable)
 TEMPLATE_MAP = [
-    ("plugin_yaml.yaml",     "plugin.yaml",           False),
-    ("__init___py.txt",      "__init__.py",           False),
-    ("tools_py.txt",         "tools.py",              False),
-    ("schemas_py.txt",       "schemas.py",            False),
-    ("setup_py.txt",         "setup.py",              False),
-    ("setup_sh.txt",         "setup.sh",              True),
-    ("SKILL_md.txt",         "SKILL.md",              False),
-    ("plugin_tests_py.txt",  "tests/plugin_tests.py", False),
+    ("plugin_yaml.yaml",     "plugin.yaml",                    False),
+    ("__init___py.txt",      "__init__.py",                    False),
+    ("tools_py.txt",         "tools.py",                       False),
+    ("schemas_py.txt",       "schemas.py",                     False),
+    ("setup_py.txt",         "setup.py",                       False),
+    ("setup_sh.txt",         "setup.sh",                       True),
+    ("SKILL_md.txt",         "SKILL.md",                       False),
+    ("stub_SKILL_md.txt",    "skill-stub/SKILL.md",            False),
+    ("plugin_tests_py.txt",  "tests/plugin_tests.py",          False),
 ]
 
 
-def _render(template_text: str, plugin_name: str, plugin_key: str) -> str:
+def _render(template_text: str, plugin_name: str, plugin_key: str, skill_category: str) -> str:
     """Replace template placeholders."""
     return (
         template_text
         .replace("{{PLUGIN_NAME}}", plugin_name)
         .replace("{{PLUGIN_KEY}}", plugin_key)
         .replace("{{PLUGIN_SERVICE}}", f"hermes-{plugin_name}")
+        .replace("{{SKILL_CATEGORY}}", skill_category)
     )
 
 
-def scaffold(plugin_name: str, output_dir: Path | None = None) -> Path:
+def scaffold(plugin_name: str, skill_category: str, output_dir: Path | None = None) -> Path:
     """
     Generate a new plugin repo for the given plugin_name.
 
-    plugin_name: e.g. "my-api" (hyphens OK)
-    output_dir: where to create the repo (default: ~/Git_Repos/)
+    plugin_name:    e.g. "my-api" (hyphens OK)
+    skill_category: e.g. "email", "productivity", "data-science"
+    output_dir:     where to create the repo (default: ~/Git_Repos/)
 
     Returns the created repo path.
     """
@@ -66,13 +69,14 @@ def scaffold(plugin_name: str, output_dir: Path | None = None) -> Path:
     # Create directories
     repo_dir.mkdir(parents=True)
     (repo_dir / "tests").mkdir()
+    (repo_dir / "skill-stub").mkdir()
 
     # Render and write each template
     for tmpl_name, out_name, executable in TEMPLATE_MAP:
         tmpl_path = TEMPLATES_DIR / tmpl_name
         out_path = repo_dir / out_name
         tmpl_text = tmpl_path.read_text()
-        rendered = _render(tmpl_text, plugin_name, plugin_key)
+        rendered = _render(tmpl_text, plugin_name, plugin_key, skill_category)
         out_path.write_text(rendered)
         if executable:
             out_path.chmod(0o755)
@@ -109,13 +113,18 @@ def main():
     )
     parser.add_argument("plugin_name", help="Plugin name, e.g. 'my-api' (hyphens OK)")
     parser.add_argument(
+        "--category",
+        required=True,
+        help="Skill stub category, e.g. 'email', 'productivity', 'data-science'",
+    )
+    parser.add_argument(
         "--output-dir",
         type=Path,
         default=None,
         help="Where to create the repo (default: ~/Git_Repos/)",
     )
     args = parser.parse_args()
-    scaffold(args.plugin_name, args.output_dir)
+    scaffold(args.plugin_name, args.category, args.output_dir)
 
 
 if __name__ == "__main__":

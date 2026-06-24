@@ -22,6 +22,8 @@ config = PluginConfig(
         "api_key": ("API Key", "", True),
     },
     requirements=[],
+    has_skill_stub=True,
+    skill_stub_category="{{SKILL_CATEGORY}}",
 )
 
 if __name__ == "__main__":
