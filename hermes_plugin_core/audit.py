@@ -363,6 +363,7 @@ def _check_tools_try_except(repo_dir: Path) -> AuditResult:
         return AuditResult(AuditStatus.FAIL, "tools try/except", "tools.py syntax error")
 
     fn_nodes = _top_level_function_nodes(tree)
+    fn_nodes = [fn for fn in fn_nodes if not fn.name.startswith("_")]
     missing = [fn.name for fn in fn_nodes if not _func_has_try(fn)]
 
     if missing:
@@ -372,7 +373,7 @@ def _check_tools_try_except(repo_dir: Path) -> AuditResult:
             f"missing try/except: {', '.join(missing)}",
         )
     if not fn_nodes:
-        return AuditResult(AuditStatus.WARN, "tools try/except", "no functions found in tools.py")
+        return AuditResult(AuditStatus.WARN, "tools try/except", "no public tool functions found in tools.py")
     return AuditResult(
         AuditStatus.PASS,
         "tools try/except",
@@ -390,6 +391,7 @@ def _check_tools_json_dumps(repo_dir: Path) -> AuditResult:
         return AuditResult(AuditStatus.FAIL, "tools json.dumps", "tools.py syntax error")
 
     fn_nodes = _top_level_function_nodes(tree)
+    fn_nodes = [fn for fn in fn_nodes if not fn.name.startswith("_")]
     missing = [fn.name for fn in fn_nodes if not _func_has_json_dumps(fn)]
 
     if missing:
@@ -399,7 +401,7 @@ def _check_tools_json_dumps(repo_dir: Path) -> AuditResult:
             f"missing json.dumps return: {', '.join(missing)}",
         )
     if not fn_nodes:
-        return AuditResult(AuditStatus.WARN, "tools json.dumps", "no functions found in tools.py")
+        return AuditResult(AuditStatus.WARN, "tools json.dumps", "no public tool functions found in tools.py")
     return AuditResult(
         AuditStatus.PASS,
         "tools json.dumps",
