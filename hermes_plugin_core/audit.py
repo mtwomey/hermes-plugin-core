@@ -407,8 +407,72 @@ def _check_tools_json_dumps(repo_dir: Path) -> AuditResult:
     )
 
 
+def _check_skill_md_content(repo_dir: Path) -> list[AuditResult]:
+    """Check 10: SKILL.md has required frontmatter keys and required sections."""
+    results: list[AuditResult] = []
+    skill_path = repo_dir / "SKILL.md"
+    if not skill_path.exists():
+        # Already caught by _check_required_files; skip to avoid duplicate FAIL
+        return results
+
+    try:
+        content = skill_path.read_text(encoding="utf-8")
+    except OSError as exc:
+        results.append(AuditResult(AuditStatus.FAIL, "SKILL.md content", f"read error: {exc}"))
+        return results
+
+    # ---- frontmatter ----
+    REQUIRED_FRONTMATTER = ["name:", "description:", "triggers:"]
+    TEMPLATE_PLACEHOLDER = "<plugin-name>"
+
+    if not content.startswith("---"):
+        results.append(AuditResult(
+            AuditStatus.FAIL,
+            "SKILL.md frontmatter",
+            "missing YAML frontmatter (file must start with ---)",
+        ))
+    else:
+        missing_fm = [k for k in REQUIRED_FRONTMATTER if k not in content]
+        if missing_fm:
+            results.append(AuditResult(
+                AuditStatus.FAIL,
+                "SKILL.md frontmatter",
+                f"missing required frontmatter keys: {', '.join(missing_fm)}",
+            ))
+        elif TEMPLATE_PLACEHOLDER in content:
+            results.append(AuditResult(
+                AuditStatus.FAIL,
+                "SKILL.md frontmatter",
+                f"template placeholder '{TEMPLATE_PLACEHOLDER}' not replaced — SKILL.md is unfilled",
+            ))
+        else:
+            results.append(AuditResult(
+                AuditStatus.PASS,
+                "SKILL.md frontmatter",
+                "name, description, triggers present and filled in",
+            ))
+
+    # ---- required sections ----
+    REQUIRED_SECTIONS = ["Common Patterns", "Pitfalls"]
+    missing_sections = [s for s in REQUIRED_SECTIONS if s not in content]
+    if missing_sections:
+        results.append(AuditResult(
+            AuditStatus.FAIL,
+            "SKILL.md sections",
+            f"missing required sections: {', '.join(missing_sections)}",
+        ))
+    else:
+        results.append(AuditResult(
+            AuditStatus.PASS,
+            "SKILL.md sections",
+            "Common Patterns and Pitfalls sections present",
+        ))
+
+    return results
+
+
 def _check_tools_logger(repo_dir: Path) -> AuditResult:
-    """Check 10: tools.py uses getLogger, not setup_logging."""
+    """Check 11: tools.py uses getLogger, not setup_logging."""
     tools_path = repo_dir / "tools.py"
     if not tools_path.exists():
         return AuditResult(AuditStatus.FAIL, "tools logger", "tools.py not found")
@@ -489,6 +553,8 @@ def run_audit(repo_dir: Path, plugin_key: Optional[str] = None) -> list[AuditRes
     # Check 9
     results.append(_check_tools_json_dumps(repo_dir))
     # Check 10
+    results.extend(_check_skill_md_content(repo_dir))
+    # Check 11
     results.append(_check_tools_logger(repo_dir))
 
     return results
