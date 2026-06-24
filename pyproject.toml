@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "hermes-plugin-core"
-version = "0.4.1"
+version = "0.5.0"
 description = "Shared infrastructure for Hermes native plugins"
 requires-python = ">=3.10"
 dependencies = [
@@ -14,6 +14,7 @@ dependencies = [
 
 [project.scripts]
 hermes-plugin-scaffold = "hermes_plugin_core.scaffold:main"
+hermes-plugin-sync = "hermes_plugin_core.sync:main"
 
 [tool.setuptools.packages.find]
 where = ["."]

@@ -13,3 +13,22 @@ and a scaffold generator for new plugins.
 ## Usage
 
 Each plugin's `setup.py` imports from this package — see the `hermes-plugin-authoring` skill in Hermes.
+
+## Plugin Sync
+
+The package also installs `hermes-plugin-sync`, a safe updater that discovers locally installed Git-backed Hermes plugins under `$HERMES_HOME/plugins`, fast-forwards each one from `origin/main`, runs `install`/`test`/`audit`, and rolls back failed updates.
+
+```bash
+hermes-plugin-sync
+hermes-plugin-sync --json
+hermes-plugin-sync --dry-run
+hermes-plugin-sync --plugins bigtime,imap
+```
+
+Safety behavior:
+
+- skips dirty repos
+- skips non-main branches
+- continues after per-plugin failures
+- rolls back post-pull validation failures
+- reports that a Hermes restart is required when code changes land
