@@ -16,6 +16,7 @@ from hermes_plugin_core.config import (
 from hermes_plugin_core.setup_cli import SetupCLI, PluginConfig
 from hermes_plugin_core.testing import TestSuite, expect_ok, run_plugin_tests, load_plugin_tests
 from hermes_plugin_core.audit import run_audit, print_audit_report, AuditResult, AuditStatus
+from hermes_plugin_core.scaffold import scaffold
 
 __all__ = [
     "__version__",
@@ -49,4 +50,6 @@ __all__ = [
     "print_audit_report",
     "AuditResult",
     "AuditStatus",
+    # scaffold
+    "scaffold",
 ]
