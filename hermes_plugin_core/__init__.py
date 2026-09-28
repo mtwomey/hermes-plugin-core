@@ -17,6 +17,12 @@ from hermes_plugin_core.setup_cli import SetupCLI, PluginConfig
 from hermes_plugin_core.testing import TestSuite, expect_ok, run_plugin_tests, load_plugin_tests
 from hermes_plugin_core.audit import run_audit, print_audit_report, AuditResult, AuditStatus
 from hermes_plugin_core.scaffold import scaffold
+from hermes_plugin_core.venv import (
+    VenvNotFoundError,
+    hermes_venv_python,
+    install_packages,
+    installer_command,
+)
 
 __all__ = [
     "__version__",
@@ -52,4 +58,9 @@ __all__ = [
     "AuditStatus",
     # scaffold
     "scaffold",
+    # venv
+    "hermes_venv_python",
+    "installer_command",
+    "install_packages",
+    "VenvNotFoundError",
 ]
