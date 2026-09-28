@@ -39,13 +39,28 @@ from hermes_plugin_core.config import (
     plugin_is_enabled,
     set_log_level,
 )
+from hermes_plugin_core.venv import (
+    ENV_OVERRIDE,
+    VenvNotFoundError,
+    hermes_venv_python,
+    install_packages,
+)
 from hermes_plugin_core.keychain import cred_delete, cred_get, cred_set
 from hermes_plugin_core.testing import run_plugin_tests
 
 # ---------------------------------------------------------------------------
 # Constants
 # ---------------------------------------------------------------------------
-HERMES_VENV_PYTHON = Path.home() / ".hermes" / "hermes-agent" / "venv" / "bin" / "python3"
+def _hermes_venv_python() -> Path | None:
+    """Resolve the live Hermes venv, or None if it cannot be found.
+
+    Never hardcode this: `hermes update` rebuilds the venv at a new
+    content-addressed path and the old fixed location lingers as a decoy.
+    """
+    try:
+        return hermes_venv_python()
+    except VenvNotFoundError:
+        return None
 HERMES_PLUGINS_DIR = Path(os.environ.get("HERMES_HOME", Path.home() / ".hermes")) / "plugins"
 HERMES_SKILLS_DIR  = Path(os.environ.get("HERMES_HOME", Path.home() / ".hermes")) / "skills"
 
@@ -133,20 +148,24 @@ class SetupCLI:
             print(f"  {WARN} {label}: Symlink not found — skipping")
 
     def _install_requirements(self) -> None:
-        """Install pip requirements into the Hermes venv."""
+        """Install pip requirements into the live Hermes venv."""
         reqs = self.config.requirements
         if not reqs:
             return
         print("\n[0] Python dependencies")
-        r = subprocess.run(
-            [str(HERMES_VENV_PYTHON), "-m", "pip", "install", "--quiet", *reqs],
-            capture_output=True,
-            text=True,
-        )
+
+        python = _hermes_venv_python()
+        if python is None:
+            print(f"  {FAIL} Could not locate the Hermes venv — cannot install {', '.join(reqs)}.")
+            print(f"  Set {ENV_OVERRIDE} to the venv's python3 and re-run.")
+            sys.exit(1)
+
+        r = install_packages(reqs, python=python)
         if r.returncode != 0:
-            print(f"  {FAIL} pip install failed:\n{r.stderr}")
+            print(f"  {FAIL} install failed:\n{r.stderr}")
             sys.exit(1)
         print(f"  {OK} All dependencies installed ({', '.join(reqs)})")
+        print(f"     into {python}")
 
     def _cred_status(self) -> dict[str, str]:
         """Return {key: 'keychain'|'missing'} for each configured credential key."""
@@ -272,7 +291,8 @@ class SetupCLI:
         print("=" * 52)
 
         print("\nHermes:")
-        print(f"  venv Python : {'present' if HERMES_VENV_PYTHON.exists() else FAIL + ' NOT FOUND'}")
+        _venv = _hermes_venv_python()
+        print(f"  venv Python : {_venv if _venv else FAIL + ' NOT FOUND'}")
         print(f"  config.yaml : {'present' if self._config_yaml.exists() else FAIL + ' NOT FOUND'}")
 
         print(f"\nPlugin symlink (plugins/{cfg.plugin_key} → repo):")

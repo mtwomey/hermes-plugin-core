@@ -1,4 +1,33 @@
 #!/usr/bin/env bash
 # Install/manage hermes-plugin-{{PLUGIN_NAME}}
 set -euo pipefail
-~/.hermes/hermes-agent/venv/bin/python3 "$(dirname "$0")/setup.py" "$@"
+
+# Resolve the LIVE Hermes venv. `hermes update` rebuilds it at a new
+# content-addressed path under installs/*/environments/*/venv, and the old
+# fixed path (~/.hermes/hermes-agent/venv) lingers as a stale decoy — so
+# never hardcode it. Newest environment first; legacy path last.
+HERMES_HOME="${HERMES_HOME:-$HOME/.hermes}"
+
+find_python() {
+  if [[ -n "${HERMES_PLUGIN_VENV_PYTHON:-}" ]]; then
+    echo "$HERMES_PLUGIN_VENV_PYTHON"; return 0
+  fi
+  local py
+  while IFS= read -r py; do
+    [[ -x "$py" ]] && "$py" -c 'import hermes_cli' 2>/dev/null && { echo "$py"; return 0; }
+  done < <(
+    ls -td "$HERMES_HOME"/installs/*/environments/*/venv 2>/dev/null \
+      | sed 's|$|/bin/python3|'
+    echo "$HERMES_HOME/hermes-agent/venv/bin/python3"
+  )
+  return 1
+}
+
+PYTHON="$(find_python)" || {
+  echo "error: could not find the Hermes venv (no python3 under" >&2
+  echo "  $HERMES_HOME/installs/*/environments/*/venv could import hermes_cli)." >&2
+  echo "  Set HERMES_PLUGIN_VENV_PYTHON to override." >&2
+  exit 1
+}
+
+exec "$PYTHON" "$(dirname "$0")/setup.py" "$@"

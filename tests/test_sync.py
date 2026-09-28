@@ -12,6 +12,7 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from hermes_plugin_core import sync as sync_mod
+from hermes_plugin_core import venv as venv_mod
 
 
 def git(cwd: Path, *args: str, check: bool = True, env: dict[str, str] | None = None) -> subprocess.CompletedProcess[str]:
@@ -96,14 +97,23 @@ def advance_remote_commit(remote_src: Path, filename: str = "repo.txt", content:
     return git(remote_src, "rev-parse", "HEAD").stdout.strip()
 
 
-def test_update_core_builds_expected_pip_command(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_update_core_upgrades_into_resolved_venv_via_pip(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Legacy venv: no bundled uv, so pip in the resolved interpreter is used."""
     home = tmp_path / "home"
     venv_python = home / "hermes-agent" / "venv" / "bin" / "python3"
     venv_python.parent.mkdir(parents=True)
     venv_python.write_text("#!/usr/bin/env python3\n")
     venv_python.chmod(0o755)
 
-    captured: dict[str, object] = {}
+    # Isolate from the developer's real ~/.hermes, which ships uv.
+    monkeypatch.setenv("HERMES_HOME", str(home))
+    monkeypatch.setattr(venv_mod.shutil, "which", lambda _: None)
+    monkeypatch.setattr(
+        venv_mod.subprocess, "run",
+        lambda *a, **k: subprocess.CompletedProcess(a[0] if a else [], 0, b"", b""),
+    )
+
+    captured: dict[str, list[str]] = {}
 
     def fake_run_cmd(args, cwd=None, timeout=300, dry_run=False):
         captured["args"] = list(args)
@@ -115,9 +125,43 @@ def test_update_core_builds_expected_pip_command(tmp_path: Path, monkeypatch: py
 
     result = sync_mod.update_core(home, skip_core=False, dry_run=False)
     assert result.status == "updated"
-    assert captured["args"][0] == str(venv_python)
-    assert captured["args"][1:5] == ["-m", "pip", "install", "--upgrade"]
+    # Contract: install core into THIS interpreter, as an upgrade.
+    assert str(venv_python) in captured["args"]
+    assert "--upgrade" in captured["args"]
     assert captured["args"][-1] == sync_mod.CORE_GITHUB_URL
+
+
+def test_update_core_targets_resolved_venv_when_uv_is_used(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Managed venv: uv must be pointed at the venv, not left to its own default."""
+    home = tmp_path / "home"
+    venv_python = home / "installs" / "x" / "environments" / "y" / "venv" / "bin" / "python3"
+    venv_python.parent.mkdir(parents=True)
+    venv_python.write_text("#!/usr/bin/env python3\n")
+    venv_python.chmod(0o755)
+
+    uv = home / "bin" / "uv"
+    uv.parent.mkdir(parents=True)
+    uv.write_text("#!/usr/bin/env bash\n")
+    uv.chmod(0o755)
+
+    monkeypatch.setenv("HERMES_HOME", str(home))
+
+    captured: dict[str, object] = {}
+
+    def fake_run_cmd(args, cwd=None, timeout=300, dry_run=False):
+        captured["args"] = list(args)
+        return sync_mod.CommandResult(command=list(args), cwd=str(cwd), exit_code=0, stdout="ok\n", stderr="")
+
+    monkeypatch.setattr(sync_mod, "run_cmd", fake_run_cmd)
+    monkeypatch.setattr(sync_mod, "_resolve_venv_python", lambda h: venv_python)
+
+    result = sync_mod.update_core(home, skip_core=False, dry_run=False)
+    assert result.status == "updated"
+    args = captured["args"]
+    assert args[0] == str(uv)
+    # Without --python, uv would upgrade core in the wrong environment.
+    assert "--python" in args and str(venv_python) in args
+    assert args[-1] == sync_mod.CORE_GITHUB_URL
 
 
 def test_discover_plugins_skips_filter_and_keeps_symlink_target(tmp_path: Path) -> None:

@@ -25,6 +25,11 @@ from pathlib import Path
 from typing import Iterable, Sequence
 
 from hermes_plugin_core.config import hermes_home
+from hermes_plugin_core.venv import (
+    VenvNotFoundError,
+    hermes_venv_python,
+    installer_command,
+)
 
 CORE_GITHUB_URL = "git+https://github.com/mtwomey/hermes-plugin-core"
 DEFAULT_VENV_PYTHON_RELATIVE = Path("hermes-agent") / "venv"
@@ -135,9 +140,18 @@ def _resolve_home(home: Path | None = None) -> Path:
 
 
 def _resolve_venv_python(home: Path) -> Path:
-    if sys.platform == "win32":
-        return home / DEFAULT_VENV_PYTHON_RELATIVE / "Scripts" / "python.exe"
-    return home / DEFAULT_VENV_PYTHON_RELATIVE / "bin" / "python3"
+    """Locate the live Hermes interpreter.
+
+    Delegates to hermes_plugin_core.venv so sync and setup agree. Falls back
+    to the legacy fixed layout only so callers still get a path to name in an
+    error message when resolution fails outright.
+    """
+    try:
+        return hermes_venv_python()
+    except VenvNotFoundError:
+        if os.name == "nt":
+            return home / DEFAULT_VENV_PYTHON_RELATIVE / "Scripts" / "python.exe"
+        return home / DEFAULT_VENV_PYTHON_RELATIVE / "bin" / "python3"
 
 
 def _plugin_root_dir(home: Path) -> Path:
@@ -296,9 +310,19 @@ def update_core(home: Path, skip_core: bool, dry_run: bool = False) -> CoreSyncR
         return CoreSyncResult(status="skipped", details="--skip-core requested")
 
     venv_python = _resolve_venv_python(home)
-    cmd = [str(venv_python), "-m", "pip", "install", "--upgrade", CORE_GITHUB_URL]
     if not venv_python.exists():
-        return CoreSyncResult(status="failed", command=cmd, exit_code=1, details=f"missing Hermes venv Python at {venv_python}")
+        return CoreSyncResult(
+            status="failed",
+            command=[str(venv_python), "-m", "pip", "install", "--upgrade", CORE_GITHUB_URL],
+            exit_code=1,
+            details=f"missing Hermes venv Python at {venv_python}",
+        )
+
+    # Managed venvs have no pip, so route through the resolved installer (uv).
+    try:
+        cmd = [*installer_command(venv_python), "--upgrade", CORE_GITHUB_URL]
+    except VenvNotFoundError as exc:
+        return CoreSyncResult(status="failed", exit_code=1, details=str(exc))
 
     result = run_cmd(cmd, cwd=home, dry_run=dry_run)
     if result.exit_code != 0:
