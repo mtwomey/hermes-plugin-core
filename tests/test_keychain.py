@@ -38,6 +38,30 @@ def macos(monkeypatch):
     monkeypatch.setattr(kc, "_IS_MACOS", True)
 
 
+@pytest.fixture
+def fake_keyring(monkeypatch):
+    """A stand-in `keyring` module, so tests never need the real one.
+
+    keyring is not a dependency on macOS, so it may not be installed.
+    """
+    import types
+
+    mod = types.ModuleType("keyring")
+    errors = types.ModuleType("keyring.errors")
+
+    class PasswordDeleteError(Exception):
+        pass
+
+    errors.PasswordDeleteError = PasswordDeleteError
+    mod.errors = errors
+    mod.set_password = lambda *a: pytest.fail("keyring.set_password called")
+    mod.get_password = lambda *a: pytest.fail("keyring.get_password called")
+    mod.delete_password = lambda *a: pytest.fail("keyring.delete_password called")
+    monkeypatch.setitem(sys.modules, "keyring", mod)
+    monkeypatch.setitem(sys.modules, "keyring.errors", errors)
+    return mod
+
+
 class FakeSecurity:
     """Records `security` invocations and simulates item presence."""
 
@@ -130,22 +154,39 @@ def test_secret_is_never_in_argv(sec):
     assert add[add.index("-X") + 1] == "super-secret".encode().hex()
 
 
-def test_keyring_is_not_used_on_macos(monkeypatch, sec):
-    """keyring prompts on macOS for both reads and writes — it must not be touched."""
-    import keyring
+def test_keyring_is_not_used_on_macos(fake_keyring, sec):
+    """keyring prompts on macOS for both reads and writes — it must not be touched.
 
-    monkeypatch.setattr(
-        keyring, "set_password",
-        lambda *a: pytest.fail("keyring.set_password must not run on macOS"),
-    )
-    monkeypatch.setattr(
-        keyring, "get_password",
-        lambda *a: pytest.fail("keyring.get_password must not run on macOS"),
-    )
-
+    fake_keyring fails the test on any keyring call.
+    """
     kc.cred_set("svc", "key", "v1")
     kc.cred_cache_clear()
     assert kc.cred_get("svc", "key") == "v1"
+    kc.cred_status("svc", ["key"])
+    kc.cred_delete("svc", "key")
+
+
+def test_keychain_module_does_not_import_keyring_on_macos():
+    """Importing the module and using every API on macOS must not load keyring.
+
+    Runs in a fresh interpreter so an earlier import can't mask a regression.
+    """
+    code = (
+        "import sys, subprocess\n"
+        "from hermes_plugin_core import keychain as kc\n"
+        "kc._IS_MACOS = True\n"
+        "kc.subprocess.run = lambda cmd, **kw: subprocess.CompletedProcess(cmd, 44, '', '')\n"
+        "kc.cred_get('svc', 'key'); kc.cred_status('svc', ['key']); kc.cred_delete('svc', 'key')\n"
+        "try:\n"
+        "    kc.cred_set('svc', 'key', 'v')\n"
+        "except kc.KeychainWriteError:\n"
+        "    pass\n"
+        "assert 'keyring' not in sys.modules, 'keyring was imported'\n"
+    )
+    result = subprocess.run(
+        [sys.executable, "-c", code], cwd=ROOT, capture_output=True, text=True,
+    )
+    assert result.returncode == 0, result.stderr
 
 
 # ---------------------------------------------------------------------------
@@ -244,9 +285,9 @@ def test_delete_removes_item_and_cache(sec):
 # ---------------------------------------------------------------------------
 # Non-macOS
 # ---------------------------------------------------------------------------
-def test_non_macos_uses_keyring(monkeypatch):
+def test_non_macos_uses_keyring(monkeypatch, fake_keyring):
     monkeypatch.setattr(kc, "_IS_MACOS", False)
-    import keyring
+    keyring = fake_keyring
 
     store = {}
     monkeypatch.setattr(keyring, "set_password", lambda s, k, v: store.__setitem__((s, k), v))
