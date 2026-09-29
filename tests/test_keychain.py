@@ -1,9 +1,14 @@
 """Tests for Keychain credential storage.
 
-Focus: the errSecInvalidOwnerEdit (-25244) recovery path. A Keychain item can
-become readable-but-not-writable; keyring then raises on every update and, left
-unhandled, a rotating OAuth token is silently discarded until it hard-expires.
-These assert the recovery behaves, and that unrelated failures still propagate.
+Focus: the prompt-avoidance contract on macOS. Each rule below was established
+by live testing against real Keychain items — getting any of them wrong brings
+back the password dialog on every credential write:
+
+  - create once WITH -T (pins the ACL)
+  - update in place with -U and NEVER -T (a -T on an existing item is an ACL
+    change, which is its own consent gate)
+  - never delete-and-recreate to update (discards the pinned ACL)
+  - never use the `keyring` library on macOS, for reads or writes
 """
 
 from __future__ import annotations
@@ -21,9 +26,6 @@ if str(ROOT) not in sys.path:
 from hermes_plugin_core import keychain as kc
 
 
-OWNER_EDIT_MSG = "Can't store password on keychain: (-25244, 'Unknown Error')"
-
-
 @pytest.fixture(autouse=True)
 def clear_cache():
     kc.cred_cache_clear()
@@ -32,164 +34,228 @@ def clear_cache():
 
 
 @pytest.fixture
-def darwin(monkeypatch):
-    monkeypatch.setattr(kc.sys, "platform", "darwin")
+def macos(monkeypatch):
+    monkeypatch.setattr(kc, "_IS_MACOS", True)
+
+
+class FakeSecurity:
+    """Records `security` invocations and simulates item presence."""
+
+    def __init__(self, existing: dict[tuple[str, str], str] | None = None):
+        self.items = dict(existing or {})
+        self.calls: list[list[str]] = []
+
+    def run(self, cmd, **kwargs):
+        self.calls.append(list(cmd))
+        verb = cmd[1]
+        svc = cmd[cmd.index("-s") + 1]
+        acct = cmd[cmd.index("-a") + 1]
+
+        if verb == "find-generic-password":
+            if (svc, acct) not in self.items:
+                return subprocess.CompletedProcess(cmd, 44, "", "")
+            out = self.items[(svc, acct)] + "\n" if "-w" in cmd else ""
+            return subprocess.CompletedProcess(cmd, 0, out, "")
+
+        if verb == "add-generic-password":
+            self.items[(svc, acct)] = bytes.fromhex(
+                cmd[cmd.index("-X") + 1]
+            ).decode()
+            return subprocess.CompletedProcess(cmd, 0, "", "")
+
+        if verb == "delete-generic-password":
+            self.items.pop((svc, acct), None)
+            return subprocess.CompletedProcess(cmd, 0, "", "")
+
+        raise AssertionError(f"unexpected verb {verb}")
+
+    def verbs(self):
+        return [c[1] for c in self.calls]
+
+    def adds(self):
+        return [c for c in self.calls if c[1] == "add-generic-password"]
+
+
+@pytest.fixture
+def sec(monkeypatch, macos):
+    fake = FakeSecurity()
+    monkeypatch.setattr(kc.subprocess, "run", fake.run)
+    return fake
 
 
 # ---------------------------------------------------------------------------
-# Happy path
+# The prompt-avoidance contract
 # ---------------------------------------------------------------------------
-def test_cred_set_uses_keyring_when_it_works(monkeypatch):
-    calls = []
-    monkeypatch.setattr(kc.keyring, "set_password", lambda s, k, v: calls.append((s, k, v)))
-    # Any CLI use would be wrong here.
-    monkeypatch.setattr(kc.subprocess, "run", lambda *a, **kw: pytest.fail("CLI must not run"))
+def test_first_write_pins_acl_with_dash_T(sec):
+    """Creation is the one place -T belongs: it pins trust so nothing re-prompts."""
+    kc.cred_set("svc", "key", "v1")
 
-    kc.cred_set("svc", "key", "val")
+    add = sec.adds()[0]
+    assert "-T" in add
+    assert kc.SECURITY in add                      # all later access goes through it
+    assert sys.executable in add                   # the owning interpreter
+    assert "-U" not in add                         # creating, not updating
 
-    assert calls == [("svc", "key", "val")]
-    assert kc.cred_get("svc", "key") == "val"  # cache updated
+
+def test_later_write_updates_in_place_without_dash_T(sec):
+    """-T on an existing item is an ACL change and prompts on EVERY write."""
+    kc.cred_set("svc", "key", "v1")
+    sec.calls.clear()
+
+    kc.cred_set("svc", "key", "v2")
+
+    add = sec.adds()[0]
+    assert "-U" in add
+    assert "-T" not in add, "passing -T to an existing item re-prompts every write"
+    assert sec.items[("svc", "key")] == "v2"
 
 
-# ---------------------------------------------------------------------------
-# -25244 recovery
-# ---------------------------------------------------------------------------
-def test_owner_edit_error_triggers_cli_recreate(monkeypatch, darwin):
+def test_update_never_deletes_the_item(sec):
+    """delete+recreate is the keyring bug by hand — it discards the pinned ACL."""
+    kc.cred_set("svc", "key", "v1")
+    sec.calls.clear()
+
+    kc.cred_set("svc", "key", "v2")
+
+    assert "delete-generic-password" not in sec.verbs()
+
+
+def test_secret_is_never_in_argv(sec):
+    """-X hex keeps plaintext out of the process list; bare -w would prompt."""
+    kc.cred_set("svc", "key", "super-secret")
+
+    for call in sec.calls:
+        assert "super-secret" not in call
+    add = sec.adds()[0]
+    assert add[add.index("-X") + 1] == "super-secret".encode().hex()
+
+
+def test_keyring_is_not_used_on_macos(monkeypatch, sec):
+    """keyring prompts on macOS for both reads and writes — it must not be touched."""
+    import keyring
+
     monkeypatch.setattr(
-        kc.keyring, "set_password",
-        lambda s, k, v: (_ for _ in ()).throw(Exception(OWNER_EDIT_MSG)),
+        keyring, "set_password",
+        lambda *a: pytest.fail("keyring.set_password must not run on macOS"),
     )
-    monkeypatch.setattr(kc.keyring, "get_password", lambda s, k: "val")
+    monkeypatch.setattr(
+        keyring, "get_password",
+        lambda *a: pytest.fail("keyring.get_password must not run on macOS"),
+    )
 
-    ran = []
+    kc.cred_set("svc", "key", "v1")
+    kc.cred_cache_clear()
+    assert kc.cred_get("svc", "key") == "v1"
+
+
+# ---------------------------------------------------------------------------
+# Read / roundtrip behavior
+# ---------------------------------------------------------------------------
+def test_missing_credential_returns_none(sec):
+    assert kc.cred_get("svc", "absent") is None
+
+
+def test_read_strips_only_the_trailing_newline(monkeypatch, macos):
+    """`-w` appends a newline; a secret's own whitespace must survive."""
+    value = "  padded secret  "
 
     def fake_run(cmd, **kwargs):
-        ran.append((cmd, kwargs.get("input")))
+        if cmd[1] == "find-generic-password" and "-w" in cmd:
+            return subprocess.CompletedProcess(cmd, 0, value + "\n", "")
         return subprocess.CompletedProcess(cmd, 0, "", "")
 
     monkeypatch.setattr(kc.subprocess, "run", fake_run)
-
-    kc.cred_set("svc", "key", "val")
-
-    assert [c[0][1] for c in ran] == ["delete-generic-password", "add-generic-password"]
-    # `-w` with no argument prompts and ignores stdin (storing an empty
-    # password); `-w <value>` leaks plaintext to `ps`. Hex via -X avoids both.
-    add_cmd, _ = ran[1]
-    assert "-X" in add_cmd
-    assert "val" not in add_cmd
-    assert add_cmd[add_cmd.index("-X") + 1] == "val".encode("utf-8").hex()
-    assert kc.cred_get("svc", "key") == "val"
+    assert kc.cred_get("svc", "key") == value
 
 
-def test_recreate_verifies_readback(monkeypatch, darwin):
-    """A CLI exit code of 0 is not proof the value landed."""
-    monkeypatch.setattr(
-        kc.keyring, "set_password",
-        lambda s, k, v: (_ for _ in ()).throw(Exception(OWNER_EDIT_MSG)),
-    )
-    monkeypatch.setattr(kc.keyring, "get_password", lambda s, k: "something-else")
-    monkeypatch.setattr(
-        kc.subprocess, "run",
-        lambda cmd, **kw: subprocess.CompletedProcess(cmd, 0, "", ""),
-    )
+def test_reads_are_cached(sec):
+    kc.cred_set("svc", "key", "v1")
+    kc.cred_cache_clear()
 
-    with pytest.raises(kc.KeychainWriteError, match="read back a different value"):
-        kc.cred_set("svc", "key", "val")
+    kc.cred_get("svc", "key")
+    before = len(sec.calls)
+    kc.cred_get("svc", "key")
+
+    assert len(sec.calls) == before, "second read should hit the cache"
 
 
-def test_recreate_raises_when_cli_fails(monkeypatch, darwin):
-    monkeypatch.setattr(
-        kc.keyring, "set_password",
-        lambda s, k, v: (_ for _ in ()).throw(Exception(OWNER_EDIT_MSG)),
-    )
+def test_cred_status_reports_presence(sec):
+    kc.cred_set("svc", "present", "v")
+    assert kc.cred_status("svc", ["present", "absent"]) == {
+        "present": "keychain",
+        "absent": "missing",
+    }
 
+
+# ---------------------------------------------------------------------------
+# Failure handling
+# ---------------------------------------------------------------------------
+def test_write_failure_raises(monkeypatch, macos):
     def fake_run(cmd, **kwargs):
-        rc = 1 if "add-generic-password" in cmd else 0
-        return subprocess.CompletedProcess(cmd, rc, "", "denied")
+        if cmd[1] == "add-generic-password":
+            return subprocess.CompletedProcess(cmd, 1, "", "denied")
+        return subprocess.CompletedProcess(cmd, 44, "", "")
 
     monkeypatch.setattr(kc.subprocess, "run", fake_run)
 
     with pytest.raises(kc.KeychainWriteError, match="denied"):
-        kc.cred_set("svc", "key", "val")
+        kc.cred_set("svc", "key", "v")
 
 
-def test_failed_write_does_not_poison_cache(monkeypatch, darwin):
-    """A failed write must not leave the cache claiming the new value."""
-    monkeypatch.setattr(
-        kc.keyring, "set_password",
-        lambda s, k, v: (_ for _ in ()).throw(Exception(OWNER_EDIT_MSG)),
-    )
-    monkeypatch.setattr(
-        kc.subprocess, "run",
-        lambda cmd, **kw: subprocess.CompletedProcess(cmd, 1, "", "nope"),
-    )
+def test_write_verifies_readback(monkeypatch, macos):
+    """A zero exit code is not proof the value landed."""
+    def fake_run(cmd, **kwargs):
+        if cmd[1] == "find-generic-password":
+            if "-w" in cmd:
+                return subprocess.CompletedProcess(cmd, 0, "something-else\n", "")
+            return subprocess.CompletedProcess(cmd, 44, "", "")
+        return subprocess.CompletedProcess(cmd, 0, "", "")
+
+    monkeypatch.setattr(kc.subprocess, "run", fake_run)
+
+    with pytest.raises(kc.KeychainWriteError, match="read back a different value"):
+        kc.cred_set("svc", "key", "v")
+
+
+def test_failed_write_does_not_poison_cache(monkeypatch, macos):
+    def fake_run(cmd, **kwargs):
+        if cmd[1] == "add-generic-password":
+            return subprocess.CompletedProcess(cmd, 1, "", "nope")
+        if "-w" in cmd:
+            return subprocess.CompletedProcess(cmd, 0, "old\n", "")
+        return subprocess.CompletedProcess(cmd, 0, "", "")
+
+    monkeypatch.setattr(kc.subprocess, "run", fake_run)
 
     with pytest.raises(kc.KeychainWriteError):
         kc.cred_set("svc", "key", "new")
 
-    monkeypatch.setattr(kc.keyring, "get_password", lambda s, k: "old")
     assert kc.cred_get("svc", "key") == "old"
 
 
-# ---------------------------------------------------------------------------
-# Unrelated failures must not be swallowed
-# ---------------------------------------------------------------------------
-def test_other_errors_propagate(monkeypatch, darwin):
-    monkeypatch.setattr(
-        kc.keyring, "set_password",
-        lambda s, k, v: (_ for _ in ()).throw(Exception("keychain is locked")),
-    )
-    monkeypatch.setattr(kc.subprocess, "run", lambda *a, **kw: pytest.fail("CLI must not run"))
-
-    with pytest.raises(Exception, match="locked"):
-        kc.cred_set("svc", "key", "val")
-
-
-def test_no_cli_fallback_off_darwin(monkeypatch):
-    monkeypatch.setattr(kc.sys, "platform", "linux")
-    monkeypatch.setattr(
-        kc.keyring, "set_password",
-        lambda s, k, v: (_ for _ in ()).throw(Exception(OWNER_EDIT_MSG)),
-    )
-    monkeypatch.setattr(kc.subprocess, "run", lambda *a, **kw: pytest.fail("no `security` here"))
-
-    with pytest.raises(Exception, match="25244"):
-        kc.cred_set("svc", "key", "val")
-
-
-# ---------------------------------------------------------------------------
-# cred_delete
-# ---------------------------------------------------------------------------
-def test_delete_falls_back_to_cli_on_owner_edit(monkeypatch, darwin):
-    import keyring.errors
-
-    monkeypatch.setattr(
-        kc.keyring, "delete_password",
-        lambda s, k: (_ for _ in ()).throw(
-            keyring.errors.PasswordDeleteError(
-                "Can't delete password in keychain: (-25244, 'Unknown Error')"
-            )
-        ),
-    )
-    ran = []
-    monkeypatch.setattr(
-        kc.subprocess, "run",
-        lambda cmd, **kw: (ran.append(cmd), subprocess.CompletedProcess(cmd, 0, "", ""))[1],
-    )
-
+def test_delete_removes_item_and_cache(sec):
+    kc.cred_set("svc", "key", "v")
     kc.cred_delete("svc", "key")
 
-    assert ran and "delete-generic-password" in ran[0]
+    assert ("svc", "key") not in sec.items
+    assert kc.cred_get("svc", "key") is None
 
 
-def test_delete_ignores_missing_entry(monkeypatch, darwin):
-    """An absent credential is not an error and needs no CLI call."""
-    import keyring.errors
+# ---------------------------------------------------------------------------
+# Non-macOS
+# ---------------------------------------------------------------------------
+def test_non_macos_uses_keyring(monkeypatch):
+    monkeypatch.setattr(kc, "_IS_MACOS", False)
+    import keyring
 
+    store = {}
+    monkeypatch.setattr(keyring, "set_password", lambda s, k, v: store.__setitem__((s, k), v))
+    monkeypatch.setattr(keyring, "get_password", lambda s, k: store.get((s, k)))
     monkeypatch.setattr(
-        kc.keyring, "delete_password",
-        lambda s, k: (_ for _ in ()).throw(keyring.errors.PasswordDeleteError("not found")),
+        kc.subprocess, "run",
+        lambda *a, **kw: pytest.fail("`security` does not exist off macOS"),
     )
-    monkeypatch.setattr(kc.subprocess, "run", lambda *a, **kw: pytest.fail("CLI must not run"))
 
-    kc.cred_delete("svc", "key")  # must not raise
+    kc.cred_set("svc", "key", "v1")
+    kc.cred_cache_clear()
+    assert kc.cred_get("svc", "key") == "v1"
