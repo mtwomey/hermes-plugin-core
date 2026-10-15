@@ -220,6 +220,36 @@ def test_reads_are_cached(sec):
     assert len(sec.calls) == before, "second read should hit the cache"
 
 
+def test_fresh_read_sees_another_process_write(sec):
+    """A value changed by another process must be visible with fresh=True.
+
+    Regression: the gateway cached a rotating refresh token at startup and
+    kept using it for days after the desktop app renewed it in Keychain.
+    """
+    kc.cred_set("svc", "key", "v1")
+    assert kc.cred_get("svc", "key") == "v1"
+
+    sec.items[("svc", "key")] = "v2"         # another process writes Keychain
+
+    assert kc.cred_get("svc", "key") == "v1", "default read is still cached"
+    assert kc.cred_get("svc", "key", fresh=True) == "v2"
+    assert kc.cred_get("svc", "key") == "v2", "fresh read refreshes the cache"
+
+
+def test_fresh_read_always_hits_keychain(sec):
+    kc.cred_set("svc", "key", "v1")
+    before = len(sec.calls)
+    kc.cred_get("svc", "key", fresh=True)
+    kc.cred_get("svc", "key", fresh=True)
+    assert len(sec.calls) == before + 2
+
+
+def test_fresh_read_of_deleted_item_returns_none(sec):
+    kc.cred_set("svc", "key", "v1")
+    sec.items.pop(("svc", "key"))
+    assert kc.cred_get("svc", "key", fresh=True) is None
+
+
 def test_cred_status_reports_presence(sec):
     kc.cred_set("svc", "present", "v")
     assert kc.cred_status("svc", ["present", "absent"]) == {

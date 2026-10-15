@@ -54,10 +54,18 @@ class KeychainWriteError(RuntimeError):
 # ---------------------------------------------------------------------------
 # Public API
 # ---------------------------------------------------------------------------
-def cred_get(service: str, key: str) -> str | None:
-    """Read a credential from Keychain. Returns None if not set. Cached per process."""
+def cred_get(service: str, key: str, *, fresh: bool = False) -> str | None:
+    """Read a credential from Keychain. Returns None if not set.
+
+    Cached per process by default. Pass ``fresh=True`` for any value another
+    process can change underneath you — above all, rotating OAuth refresh
+    tokens. A long-running process (gateway, hub, spoke) otherwise keeps
+    serving the copy it read at startup forever, even after a different
+    Hermes process renews or rotates the token in Keychain. ``fresh=True``
+    always reads Keychain and refreshes the cache with the result.
+    """
     cache_key = (service, key)
-    if cache_key not in _cache:
+    if fresh or cache_key not in _cache:
         _cache[cache_key] = _read(service, key) or None
     return _cache[cache_key]
 
