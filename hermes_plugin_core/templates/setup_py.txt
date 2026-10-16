@@ -24,6 +24,8 @@ config = PluginConfig(
     requirements=[],
     has_skill_stub=True,
     skill_stub_category="{{SKILL_CATEGORY}}",
+    # Extra skills at skills/<name>/SKILL.md are auto-discovered and linked to
+    # ~/.hermes/skills/<name> (set extra_skills=[...] to choose, [] for none).
 )
 
 if __name__ == "__main__":

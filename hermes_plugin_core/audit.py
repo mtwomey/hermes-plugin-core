@@ -15,6 +15,13 @@ from enum import Enum
 from pathlib import Path
 from typing import Optional
 
+from hermes_plugin_core.bundled_skills import (
+    bundled_skill_link,
+    bundled_skill_src,
+    frontmatter_name,
+    resolve_bundled_skills,
+)
+
 # ---------------------------------------------------------------------------
 # Data structures
 # ---------------------------------------------------------------------------
@@ -525,6 +532,40 @@ def _check_skill_stub(repo_dir: Path, plugin_key: str, skill_stub_category: str)
     return results
 
 
+def _check_bundled_skills(repo_dir: Path, extra_skills: Optional[list[str]],
+                          category: str) -> list[AuditResult]:
+    """Check 13: bundled skills (skills/<name>/SKILL.md) are well-formed and installed."""
+    results: list[AuditResult] = []
+    for name in resolve_bundled_skills(repo_dir, extra_skills):
+        src = bundled_skill_src(repo_dir, name)
+        md = src / "SKILL.md"
+        label = f"bundled skill '{name}'"
+        if not md.is_file():
+            results.append(AuditResult(AuditStatus.FAIL, label, f"{md} missing"))
+            continue
+        fm = frontmatter_name(md)
+        if fm != name:
+            results.append(AuditResult(
+                AuditStatus.FAIL, label,
+                f"frontmatter name is {fm!r}, expected {name!r} (must match the directory name)"))
+        else:
+            results.append(AuditResult(AuditStatus.PASS, f"{label} (repo)", "SKILL.md present, name matches dir"))
+        link = bundled_skill_link(name, category)
+        if link.is_symlink() and link.resolve() == src.resolve():
+            results.append(AuditResult(AuditStatus.PASS, f"{label} (install)", f"symlink correct: {link} → {src}"))
+        elif link.is_symlink():
+            results.append(AuditResult(AuditStatus.WARN, f"{label} (install)",
+                                       f"symlink points elsewhere: {link.resolve()} (expected {src.resolve()})"))
+        elif link.exists():
+            results.append(AuditResult(AuditStatus.WARN, f"{label} (install)",
+                                       f"{link} is a real dir, not a symlink — an unversioned copy shadows the repo; "
+                                       "merge it into the repo, remove it, re-run: python setup.py install"))
+        else:
+            results.append(AuditResult(AuditStatus.WARN, f"{label} (install)",
+                                       f"symlink not found at {link} — run: python setup.py install"))
+    return results
+
+
 def _check_tools_logger(repo_dir: Path) -> AuditResult:
     """Check 11: tools.py uses getLogger, not setup_logging."""
     tools_path = repo_dir / "tools.py"
@@ -583,7 +624,13 @@ def _check_tools_logger(repo_dir: Path) -> AuditResult:
 # Main entry point
 # ---------------------------------------------------------------------------
 
-def run_audit(repo_dir: Path, plugin_key: Optional[str] = None, skill_stub_category: Optional[str] = None) -> list[AuditResult]:
+def run_audit(
+    repo_dir: Path,
+    plugin_key: Optional[str] = None,
+    skill_stub_category: Optional[str] = None,
+    extra_skills: Optional[list[str]] = None,
+    extra_skills_category: str = "",
+) -> list[AuditResult]:
     """Run all checks against a plugin repo. Returns list of AuditResult."""
     repo_dir = Path(repo_dir).resolve()
     results: list[AuditResult] = []
@@ -613,6 +660,8 @@ def run_audit(repo_dir: Path, plugin_key: Optional[str] = None, skill_stub_categ
     # Check 12 — only when plugin_key and skill_stub_category are provided
     if plugin_key and skill_stub_category:
         results.extend(_check_skill_stub(repo_dir, plugin_key, skill_stub_category))
+    # Check 13 — bundled skills (auto-discovered unless extra_skills is given)
+    results.extend(_check_bundled_skills(repo_dir, extra_skills, extra_skills_category))
 
     return results
 

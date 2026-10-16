@@ -46,6 +46,11 @@ from hermes_plugin_core.venv import (
     install_packages,
 )
 from hermes_plugin_core.keychain import cred_delete, cred_get, cred_set
+from hermes_plugin_core.bundled_skills import (
+    bundled_skill_link,
+    bundled_skill_src,
+    resolve_bundled_skills,
+)
 from hermes_plugin_core.testing import run_plugin_tests
 
 # ---------------------------------------------------------------------------
@@ -100,6 +105,17 @@ class PluginConfig:
     skill_stub_category: str = "email"
     """Subdirectory under ``~/.hermes/skills/`` for the skill-stub symlink."""
 
+    extra_skills: list[str] | None = None
+    """Bundled skills under ``<repo>/skills/<name>/SKILL.md`` to link into Hermes.
+
+    ``None`` (default) auto-discovers every such dir; pass a list to choose
+    explicitly, or ``[]`` to link none. Each is linked to
+    ``~/.hermes/skills/[<extra_skills_category>/]<name>``.
+    """
+
+    extra_skills_category: str = ""
+    """Subdirectory under ``~/.hermes/skills/`` for bundled skills ("" = top level)."""
+
 
 # ---------------------------------------------------------------------------
 # SetupCLI
@@ -119,6 +135,11 @@ class SetupCLI:
         else:
             self._skill_stub_src  = None
             self._skill_stub_link = None
+        self._extra_skills = [
+            (name, bundled_skill_src(cfg.repo_dir, name),
+             bundled_skill_link(name, cfg.extra_skills_category))
+            for name in resolve_bundled_skills(cfg.repo_dir, cfg.extra_skills)
+        ]
 
     # ------------------------------------------------------------------
     # Private helpers
@@ -134,7 +155,8 @@ class SetupCLI:
             link.unlink()
         elif link.exists():
             print(f"  {FAIL} {label}: Path exists but is not a symlink: {link}")
-            print("  Remove it manually and re-run.")
+            print("  If it is an old unversioned copy, back it up, move/merge it into the")
+            print("  repo, remove it, and re-run.")
             sys.exit(1)
         link.symlink_to(target)
         print(f"  {OK} {label}: {link} → {target}")
@@ -231,6 +253,11 @@ class SetupCLI:
         self._make_symlink(self._plugin_link, cfg.repo_dir, "plugin symlink")
         if cfg.has_skill_stub:
             self._make_symlink(self._skill_stub_link, self._skill_stub_src, "skill stub symlink")
+        for name, src, link in self._extra_skills:
+            if not (src / "SKILL.md").is_file():
+                print(f"  {FAIL} skill '{name}': {src}/SKILL.md not found — fix extra_skills")
+                sys.exit(1)
+            self._make_symlink(link, src, f"skill '{name}'")
 
         print("\n[2/3] Plugin enable (config.yaml)")
         plugin_enable(cfg.plugin_key)
@@ -260,6 +287,12 @@ class SetupCLI:
         self._remove_symlink(self._plugin_link, "plugin symlink")
         if cfg.has_skill_stub:
             self._remove_symlink(self._skill_stub_link, "skill stub symlink")
+        for name, src, link in self._extra_skills:
+            # Only remove links that point into THIS repo — never a user's own skill.
+            if link.is_symlink() and link.resolve() != src.resolve():
+                print(f"  {WARN} skill '{name}': {link} points elsewhere — leaving it")
+                continue
+            self._remove_symlink(link, f"skill '{name}'")
 
         print("\n[2/3] Plugin disable (config.yaml)")
         plugin_disable(cfg.plugin_key)
@@ -314,6 +347,18 @@ class SetupCLI:
                 print(f"  {WARN} Symlink points elsewhere: {self._skill_stub_link.resolve()}")
             else:
                 print(f"  {FAIL} Symlink missing: {self._skill_stub_link}")
+
+        if self._extra_skills:
+            print("\nBundled skills (skills/<name> → ~/.hermes/skills):")
+            for name, src, link in self._extra_skills:
+                if link.is_symlink() and link.resolve() == src.resolve():
+                    print(f"  {OK} {link} → {src}")
+                elif link.is_symlink():
+                    print(f"  {WARN} {name}: symlink points elsewhere: {link.resolve()}")
+                elif link.exists():
+                    print(f"  {WARN} {name}: {link} exists but is not a symlink (unversioned copy?)")
+                else:
+                    print(f"  {FAIL} {name}: symlink missing: {link}")
 
         print("\nPlugin enabled (config.yaml):")
         if plugin_is_enabled(cfg.plugin_key):
@@ -397,6 +442,8 @@ class SetupCLI:
             cfg.repo_dir,
             cfg.plugin_key,
             cfg.skill_stub_category if cfg.has_skill_stub else None,
+            extra_skills=cfg.extra_skills,
+            extra_skills_category=cfg.extra_skills_category,
         )
         passed = print_audit_report(cfg.plugin_key, results)
         if not passed:
