@@ -1,5 +1,5 @@
 ---
-name: {{PLUGIN_KEY}}
+name: {{PLUGIN_KEY}}-plugin
 description: >
   {{PLUGIN_NAME}} via the {{PLUGIN_KEY}} native plugin.
   This is a redirect stub — load the full skill with skill_view(name="{{PLUGIN_KEY}}:{{PLUGIN_KEY}}").
@@ -22,3 +22,10 @@ skill_view(name="{{PLUGIN_KEY}}:{{PLUGIN_KEY}}")
 
 This stub exists solely so `skills_list(category="{{SKILL_CATEGORY}}")` surfaces the skill
 and agents can discover the correct namespaced name.
+
+<!-- The stub's name is `{{PLUGIN_KEY}}-plugin`, NOT `{{PLUGIN_KEY}}`: Hermes' skill_view dedup
+     treats a bare `{{PLUGIN_KEY}}` as the same skill as `{{PLUGIN_KEY}}:{{PLUGIN_KEY}}`, so a
+     same-named stub makes the real plugin skill return "unchanged" with no content. The
+     install symlink keeps the `{{PLUGIN_KEY}}` directory name, so skill_view("{{PLUGIN_KEY}}")
+     still resolves this stub. -->
+
